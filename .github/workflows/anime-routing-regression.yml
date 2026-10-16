@@ -40,3 +40,12 @@ jobs:
 
       - name: Run anime settings regression test
         run: pnpm test server/test/MediaRequestAnimeSettings.test.ts
+
+      # Temporary: broader checks for the anime defaults fix.
+      - name: Typecheck server
+        if: ${{ !cancelled() }}
+        run: pnpm typecheck:server
+
+      - name: Run request and dispatch suites
+        if: ${{ !cancelled() }}
+        run: pnpm test server/routes/request.test.ts server/test/MediaRequestSubscriber.test.ts
