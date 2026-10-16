@@ -6,6 +6,7 @@ import RadarrAPI from '@server/api/servarr/radarr';
 import SonarrAPI from '@server/api/servarr/sonarr';
 import SportarrAPI from '@server/api/servarr/sportarr';
 import TheMovieDb from '@server/api/themoviedb';
+import { ANIME_KEYWORD_ID } from '@server/api/themoviedb/constants';
 import type { MediaRequestFailureReason } from '@server/constants/media';
 import {
   MediaRequestStatus,
@@ -2310,24 +2311,44 @@ export class MediaRequest {
       requestBody.mediaType === MediaType.TV
         ? (selectedServer as SonarrSettings)
         : undefined;
+    // Persisted values act as overrides at Sonarr dispatch, so anime series
+    // must default to the same anime settings dispatch would otherwise use.
+    const animeSonarr =
+      selectedSonarr &&
+      'results' in tmdbMedia.keywords &&
+      tmdbMedia.keywords.results.some(
+        (keyword) => keyword.id === ANIME_KEYWORD_ID
+      )
+        ? selectedSonarr
+        : undefined;
+    const defaultDirectory = animeSonarr
+      ? animeSonarr.activeAnimeDirectory || animeSonarr.activeDirectory
+      : selectedServer?.activeDirectory;
+    const defaultProfileId = animeSonarr
+      ? (animeSonarr.activeAnimeProfileId ?? animeSonarr.activeProfileId)
+      : selectedServer?.activeProfileId;
+    const defaultTags = animeSonarr
+      ? (animeSonarr.animeTags ?? [])
+      : selectedServer?.tags;
+    const defaultLanguageProfileId = animeSonarr
+      ? animeSonarr.activeAnimeLanguageProfileId ||
+        animeSonarr.activeLanguageProfileId
+      : selectedSonarr?.activeLanguageProfileId;
 
     let rootFolder = useAdvancedOptions
-      ? (requestBody.rootFolder ??
-        requestRootFolder ??
-        selectedServer?.activeDirectory)
-      : (requestRootFolder ?? selectedServer?.activeDirectory);
+      ? (requestBody.rootFolder ?? requestRootFolder ?? defaultDirectory)
+      : (requestRootFolder ?? defaultDirectory);
     let profileId = useAdvancedOptions
-      ? (requestBody.profileId ?? selectedServer?.activeProfileId)
-      : selectedServer?.activeProfileId;
+      ? (requestBody.profileId ?? defaultProfileId)
+      : defaultProfileId;
     let tags = useAdvancedOptions
-      ? (requestBody.tags ?? selectedServer?.tags)
-      : selectedServer?.tags;
+      ? (requestBody.tags ?? defaultTags)
+      : defaultTags;
     let languageProfileId =
       requestBody.mediaType === MediaType.TV
         ? useAdvancedOptions
-          ? (requestBody.languageProfileId ??
-            selectedSonarr?.activeLanguageProfileId)
-          : selectedSonarr?.activeLanguageProfileId
+          ? (requestBody.languageProfileId ?? defaultLanguageProfileId)
+          : defaultLanguageProfileId
         : undefined;
 
     const mediaLanguagePreference = getPreferredLanguage(
@@ -2367,7 +2388,10 @@ export class MediaRequest {
             apiKey: selectedSonarr.apiKey,
             url: SonarrAPI.buildUrl(selectedSonarr, '/api/v3'),
           });
-          if (!(useAdvancedOptions && requestBody.languageProfileId != null)) {
+          if (
+            !(useAdvancedOptions && requestBody.languageProfileId != null) &&
+            !animeSonarr?.activeAnimeLanguageProfileId
+          ) {
             const languageProfiles = await sonarr
               .getLanguageProfiles()
               .catch(() => []);
@@ -2381,7 +2405,10 @@ export class MediaRequest {
             if (preferredProfile) languageProfileId = preferredProfile.id;
           }
 
-          if (!(useAdvancedOptions && requestBody.profileId != null)) {
+          if (
+            !(useAdvancedOptions && requestBody.profileId != null) &&
+            animeSonarr?.activeAnimeProfileId == null
+          ) {
             const qualityProfiles = await sonarr.getProfiles();
             const preferredQualityProfile = qualityProfiles.find((profile) =>
               languageNameMatchesCode(profile.language, mediaLanguagePreference)
